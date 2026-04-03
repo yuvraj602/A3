@@ -80,6 +80,43 @@ def get_db_connection():
     )
 
 
+def _fallback_summary(book):
+    description = (book.get("description") or "").strip()
+    if description:
+        return description
+
+    title = (book.get("title") or "this book").strip()
+    author = (book.get("Author") or "the author").strip()
+    return f"A summary is currently unavailable. {title} is authored by {author}."
+
+
+def _ensure_summary(conn, book):
+    summary = (book.get("summary") or "").strip()
+    if summary:
+        return summary
+
+    # Try to populate with LLM first; fallback guarantees a non-empty summary.
+    try:
+        fetch_and_store_summary(conn, book["ISBN"], book["title"], book["Author"])
+    except Exception as llm_err:
+        print(f"Summary generation error (non-fatal): {llm_err}")
+
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT summary FROM books WHERE ISBN = %s", (book["ISBN"],))
+        row = cursor.fetchone() or {}
+        generated = (row.get("summary") or "").strip()
+        if generated:
+            return generated
+
+        fallback = _fallback_summary(book)
+        cursor.execute("UPDATE books SET summary = %s WHERE ISBN = %s", (fallback, book["ISBN"]))
+        conn.commit()
+        return fallback
+    finally:
+        cursor.close()
+
+
 @app.get("/status")
 def status():
     return Response("OK", status=200, content_type="text/plain")
@@ -206,6 +243,7 @@ def _get_book_by_isbn(isbn):
             return jsonify({"message": "ISBN not found."}), 404
 
         book = rows[0]
+        summary = _ensure_summary(conn, book)
         response_body = {
             "ISBN": book["ISBN"],
             "title": book["title"],
@@ -214,7 +252,7 @@ def _get_book_by_isbn(isbn):
             "genre": book["genre"],
             "price": float(book["price"]),
             "quantity": book["quantity"],
-            "summary": book.get("summary") or "",
+            "summary": summary,
         }
         return jsonify(response_body), 200
     finally:
