@@ -1,0 +1,87 @@
+# Local development defaults (no .env required). For EC2 use .env.example → .env with docker run.
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: bookstore
+      MYSQL_USER: bookuser
+      MYSQL_PASSWORD: bookpass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_a2_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+
+  customer-service:
+    build: ./customer-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: bookstore
+      MYSQL_USER: bookuser
+      MYSQL_PASSWORD: bookpass
+    ports:
+      - "3001:3000"
+
+  book-service:
+    build: ./book-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: bookstore
+      MYSQL_USER: bookuser
+      MYSQL_PASSWORD: bookpass
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+    ports:
+      - "3002:3000"
+
+  internal-gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - customer-service
+      - book-service
+    ports:
+      - "3005:3000"
+    volumes:
+      - ./nginx-a2-internal.conf:/etc/nginx/conf.d/default.conf:ro
+
+  bff-web:
+    build: ./bff-web
+    restart: unless-stopped
+    depends_on:
+      - internal-gateway
+    environment:
+      URL_BASE_BACKEND_SERVICES: http://internal-gateway:3000
+    ports:
+      - "8080:80"
+
+  bff-mobile:
+    build: ./bff-mobile
+    restart: unless-stopped
+    depends_on:
+      - internal-gateway
+    environment:
+      URL_BASE_BACKEND_SERVICES: http://internal-gateway:3000
+    ports:
+      - "8081:80"
+
+volumes:
+  mysql_a2_data:
