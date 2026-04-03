@@ -1,4 +1,5 @@
 import os
+import time
 
 import mysql.connector
 from flask import Flask, jsonify, request, Response
@@ -9,13 +10,73 @@ from helpers.llm import fetch_and_store_summary
 app = Flask(__name__)
 
 
+def _db_config():
+    host = os.getenv("MYSQL_HOST") or os.getenv("DB_HOST", "localhost")
+    port = int(os.getenv("MYSQL_PORT") or os.getenv("DB_PORT", "3306"))
+    user = os.getenv("MYSQL_USER") or os.getenv("DB_USER", "root")
+    password = os.getenv("MYSQL_PASSWORD") or os.getenv("DB_PASS", "")
+    database = os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "bookstore")
+    return host, port, user, password, database
+
+
+def initialize_schema():
+    db_host, db_port, db_user, db_pass, db_name = _db_config()
+
+    retries = int(os.getenv("DB_INIT_RETRIES", "30"))
+    delay_seconds = float(os.getenv("DB_INIT_DELAY_SECONDS", "2"))
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        conn = None
+        cursor = None
+        try:
+            conn = mysql.connector.connect(
+                host=db_host,
+                port=db_port,
+                user=db_user,
+                password=db_pass,
+            )
+            cursor = conn.cursor()
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
+            cursor.execute(f"USE `{db_name}`")
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS books (
+                    ISBN VARCHAR(32) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    Author VARCHAR(255) NOT NULL,
+                    description TEXT NOT NULL,
+                    genre VARCHAR(100) NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    quantity INT NOT NULL,
+                    summary TEXT NULL
+                )
+                """
+            )
+            conn.commit()
+            print("Database schema ensured for book-service.")
+            return
+        except Exception as err:
+            last_error = err
+            print(f"Schema init attempt {attempt}/{retries} failed: {err}")
+            time.sleep(delay_seconds)
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    raise RuntimeError(f"Unable to initialize schema for book-service: {last_error}")
+
+
 def get_db_connection():
+    db_host, db_port, db_user, db_pass, db_name = _db_config()
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        user=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASS", ""),
-        database=os.getenv("DB_NAME", "bookstore"),
+        host=db_host,
+        port=db_port,
+        user=db_user,
+        password=db_pass,
+        database=db_name,
     )
 
 
@@ -180,5 +241,6 @@ def get_book(isbn):
 
 
 if __name__ == "__main__":
+    initialize_schema()
     port = int(os.getenv("PORT", "3000"))
     app.run(host="0.0.0.0", port=port)
