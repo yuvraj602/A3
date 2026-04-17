@@ -1,11 +1,9 @@
-# Local development defaults (no .env required).
 services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: bookstore
       MYSQL_USER: bookuser
       MYSQL_PASSWORD: bookpass
     ports:
@@ -19,6 +17,33 @@ services:
       retries: 15
       start_period: 25s
 
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  recommendations:
+    image: pmerson/book-recommendations-ms
+    restart: unless-stopped
+    command: ["--delay=0"]
+    ports:
+      - "8088:8080"
+
   customer-service:
     build: ./customer-service
     restart: unless-stopped
@@ -28,9 +53,12 @@ services:
     environment:
       DB_HOST: mysql
       DB_PORT: "3306"
-      DB_NAME: bookstore
+      DB_NAME: customers
       DB_USER: bookuser
       DB_PASS: bookpass
+      ANDREW_ID: ${ANDREW_ID:-dev-andrew-id}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
     ports:
       - "3001:3000"
 
@@ -43,11 +71,17 @@ services:
     environment:
       DB_HOST: mysql
       DB_PORT: "3306"
-      DB_NAME: bookstore
+      DB_NAME: books
       DB_USER: bookuser
       DB_PASS: bookpass
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      RECOMMENDATION_URL: http://recommendations:8080
+      RECOMMENDATION_TIMEOUT_SECONDS: "3"
+      CB_STATE_PATH: /var/cb/state.json
+      CB_OPEN_WINDOW_SECONDS: "60"
+    volumes:
+      - cb_state:/var/cb
     ports:
       - "3002:3000"
 
@@ -82,5 +116,22 @@ services:
     ports:
       - "8081:80"
 
+  crm-service:
+    build: ./crm-service
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      ANDREW_ID: ${ANDREW_ID:-dev-andrew-id}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@example.com}
+
 volumes:
   mysql_a3_data:
+  cb_state:

@@ -2,12 +2,21 @@ import os
 import time
 
 import mysql.connector
-from flask import Flask, jsonify, request, Response
+import requests
+from flask import Flask, Response, jsonify, request
 
 from helpers.validation import validate_book
 from helpers.llm import fetch_and_store_summary
+from helpers import circuit_breaker as cb
 
 app = Flask(__name__)
+
+
+RECOMMENDATION_BASE_URL = os.getenv(
+    "RECOMMENDATION_URL",
+    "http://book-recommendations-ms:8080",
+).rstrip("/")
+RECOMMENDATION_TIMEOUT_SECONDS = float(os.getenv("RECOMMENDATION_TIMEOUT_SECONDS", "3"))
 
 
 def _db_config():
@@ -15,7 +24,7 @@ def _db_config():
     port = int(os.getenv("MYSQL_PORT") or os.getenv("DB_PORT", "3306"))
     user = os.getenv("MYSQL_USER") or os.getenv("DB_USER", "root")
     password = os.getenv("MYSQL_PASSWORD") or os.getenv("DB_PASS", "")
-    database = os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "bookstore")
+    database = os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "books")
     return host, port, user, password, database
 
 
@@ -54,7 +63,7 @@ def initialize_schema():
                 """
             )
             conn.commit()
-            print("Database schema ensured for book-service.")
+            print(f"Database schema ensured for book-service (db={db_name}).")
             return
         except Exception as err:
             last_error = err
@@ -95,7 +104,6 @@ def _ensure_summary(conn, book):
     if summary:
         return summary
 
-    # Try to populate with LLM first; fallback guarantees a non-empty summary.
     try:
         fetch_and_store_summary(conn, book["ISBN"], book["title"], book["Author"])
     except Exception as llm_err:
@@ -267,6 +275,48 @@ def get_book_isbn(isbn):
     except Exception as err:
         print(f"GET /books/isbn error: {err}")
         return jsonify({"message": "Internal server error."}), 500
+
+
+@app.get("/books/<isbn>/related-books")
+def related_books(isbn):
+    """Call the external recommendation engine with circuit-breaker + timeout."""
+
+    decision = cb.pre_call_decision()
+    if not decision.allow:
+        return jsonify({"message": "Circuit breaker open."}), 503
+
+    url = f"{RECOMMENDATION_BASE_URL}/recommended-titles/isbn/{isbn}"
+    try:
+        res = requests.get(url, timeout=RECOMMENDATION_TIMEOUT_SECONDS)
+    except requests.Timeout:
+        cb.record_failure()
+        print(f"Recommendation service timeout (trial={decision.trial}).")
+        status_code = 503 if decision.trial else 504
+        return jsonify({"message": "Recommendation service timed out."}), status_code
+    except requests.RequestException as exc:
+        cb.record_failure()
+        print(f"Recommendation service error: {exc}")
+        status_code = 503 if decision.trial else 504
+        return jsonify({"message": "Recommendation service unavailable."}), status_code
+
+    cb.record_success()
+
+    if res.status_code == 204:
+        return Response(status=204)
+
+    if res.status_code >= 400:
+        print(f"Recommendation service returned {res.status_code}: {res.text[:200]}")
+        return jsonify({"message": "Recommendation service error."}), 504
+
+    try:
+        payload = res.json()
+    except ValueError:
+        return jsonify({"message": "Invalid response from recommendation service."}), 504
+
+    if not payload:
+        return Response(status=204)
+
+    return jsonify(payload), 200
 
 
 @app.get("/books/<isbn>")

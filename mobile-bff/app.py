@@ -69,6 +69,9 @@ def proxy_to_backend(transform_fn=None):
         print(f"Proxy error: {exc}")
         return jsonify({"message": "Backend service unavailable."}), 502
 
+    if proxy_res.status_code == 204:
+        return Response(status=204)
+
     if transform_fn and 200 <= proxy_res.status_code < 300:
         try:
             parsed = proxy_res.json()

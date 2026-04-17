@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-service
+  namespace: bookstore-ns
+  labels:
+    app: customer-service
+spec:
+  type: ClusterIP
+  selector:
+    app: customer-service
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

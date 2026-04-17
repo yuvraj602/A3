@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-gateway
+  namespace: bookstore-ns
+  labels:
+    app: internal-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: internal-gateway
+  template:
+    metadata:
+      labels:
+        app: internal-gateway
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: internal-gateway-config
+            items:
+              - key: default.conf
+                path: default.conf

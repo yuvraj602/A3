@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: book-service
+  namespace: bookstore-ns
+  labels:
+    app: book-service
+spec:
+  # MUST stay at 1: the circuit-breaker state is local to the pod (emptyDir).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: book-service
+  template:
+    metadata:
+      labels:
+        app: book-service
+    spec:
+      containers:
+        - name: book-service
+          # Replace with your actual image: <registry>/<repo>/book-service:<tag>
+          image: REPLACE_ME/book-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DB_NAME
+              value: "books"
+            - name: CB_STATE_PATH
+              value: "/var/cb/state.json"
+            - name: CB_OPEN_WINDOW_SECONDS
+              value: "60"
+            - name: RECOMMENDATION_URL
+              # Replace with the URL announced on Canvas.
+              value: "http://REPLACE_ME_RECOMMENDATIONS_HOST:8080"
+            - name: RECOMMENDATION_TIMEOUT_SECONDS
+              value: "3"
+          envFrom:
+            - secretRef:
+                name: db-credentials
+            - secretRef:
+                name: gemini-config
+                optional: true
+          volumeMounts:
+            - name: cb-state
+              mountPath: /var/cb
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: cb-state
+          emptyDir: {}

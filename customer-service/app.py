@@ -6,6 +6,7 @@ import mysql.connector
 from flask import Flask, jsonify, request, Response
 
 from helpers.validation import validate_customer
+from helpers.kafka_producer import publish_customer_registered
 
 app = Flask(__name__)
 
@@ -15,7 +16,7 @@ def _db_config():
     port = int(os.getenv("MYSQL_PORT") or os.getenv("DB_PORT", "3306"))
     user = os.getenv("MYSQL_USER") or os.getenv("DB_USER", "root")
     password = os.getenv("MYSQL_PASSWORD") or os.getenv("DB_PASS", "")
-    database = os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "bookstore")
+    database = os.getenv("MYSQL_DATABASE") or os.getenv("DB_NAME", "customers")
     return host, port, user, password, database
 
 
@@ -170,6 +171,11 @@ def add_customer():
                 "state": state,
                 "zipcode": zipcode,
             }
+
+            try:
+                publish_customer_registered(response_body)
+            except Exception as kafka_err:
+                print(f"Kafka publish failed (non-fatal): {kafka_err}")
 
             base_url = f"{request.scheme}://{request.host}"
             response = jsonify(response_body)

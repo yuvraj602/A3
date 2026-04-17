@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crm-service
+  namespace: bookstore-ns
+  labels:
+    app: crm-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crm-service
+  template:
+    metadata:
+      labels:
+        app: crm-service
+    spec:
+      containers:
+        - name: crm-service
+          image: REPLACE_ME/crm-service:latest
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: kafka-config
+            - secretRef:
+                name: smtp-config

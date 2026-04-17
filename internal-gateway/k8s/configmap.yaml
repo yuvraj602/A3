@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-gateway-config
+  namespace: bookstore-ns
+data:
+  default.conf: |
+    server {
+        listen 3000;
+        server_name _;
+
+        # Book service handles /books/**
+        location /books {
+            proxy_pass http://book-service.bookstore-ns.svc.cluster.local:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 90s;
+        }
+
+        # Customer service handles /customers/**
+        location /customers {
+            proxy_pass http://customer-service.bookstore-ns.svc.cluster.local:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+        }
+
+        # Reuse customer-service's /status endpoint for gateway health
+        location = /status {
+            proxy_pass http://customer-service.bookstore-ns.svc.cluster.local:3000/status;
+        }
+    }

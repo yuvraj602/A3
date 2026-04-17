@@ -1,0 +1,31 @@
+# Template Secret for Kafka + SMTP + Andrew ID.
+# Copy to `02-kafka-config.yaml`, fill in real values, then:
+#   kubectl apply -f k8s/02-kafka-config.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-config
+  namespace: bookstore-ns
+type: Opaque
+stringData:
+  ANDREW_ID: "your-andrew-id"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker-1:9092,kafka-broker-2:9092"
+  KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
+  # If using SASL_SSL instead:
+  # KAFKA_SASL_MECHANISM: "PLAIN"
+  # KAFKA_SASL_USERNAME: "..."
+  # KAFKA_SASL_PASSWORD: "..."
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: smtp-config
+  namespace: bookstore-ns
+type: Opaque
+stringData:
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  SMTP_STARTTLS: "true"
+  SMTP_USERNAME: "your-email@gmail.com"
+  SMTP_PASSWORD: "app-password-here"
+  SMTP_FROM: "your-email@gmail.com"

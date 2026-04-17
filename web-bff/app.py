@@ -28,7 +28,7 @@ def auth_middleware():
     return None
 
 
-def proxy_to_backend(path_suffix):
+def proxy_to_backend(path_suffix=None):
     path = request.full_path[:-1] if request.full_path.endswith("?") else request.full_path
     url = f"{BACKEND_URL.rstrip('/')}{path}"
 
@@ -52,6 +52,9 @@ def proxy_to_backend(path_suffix):
     except requests.RequestException as exc:
         print(f"Proxy error: {exc}")
         return jsonify({"message": "Backend service unavailable."}), 502
+
+    if proxy_res.status_code == 204:
+        return Response(status=204)
 
     out = Response(
         proxy_res.content,
